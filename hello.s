@@ -7,6 +7,63 @@ SCREEN_DEV = 3
 KEYBOARD_DEV = 0
 CARRIAGE_RETURN = $0D
 
+RAM_BANK = $0000
+ROM_BANK = $0001
+
+VERA_CTRL = $9F25
+VERA_ADDRL = $9F20
+VERA_ADDRM = $9F21
+VERA_ADDRH = $9F22
+VERA_DATA0 = $9F23
+VERA_DATA1 = $9F24
+;DCSEL = 0
+VERA_DC_VIDEO = $9F29
+VERA_DC_HSCALE = $9F2A
+VERA_DC_VSCALE = $9F2B
+VERA_DC_BORDER = $9F2C
+;DCSEL = 1
+VERA_DCSEL_1 = $02
+VERA_DC_HSTART = $9F29
+VERA_DC_HSTOP = $9F2A
+VERA_DC_VSTART = $9F2B
+VERA_DC_VSTOP = $9F2C
+
+VERA_SPRITE_MEM = $1FC00
+VERA_SPRITE_SIZE = 8
+VERA_SPRITE_MEMM = $FC
+VERA_SPRITE_MEMH = $01
+
+VERA_AUTOINCREMENT_1 = $10
+
+.macro vera_setup_video
+    stz VERA_CTRL ; set DCSEL 0
+    lda #64 ; double pixels
+    sta VERA_DC_HSCALE
+    sta VERA_DC_VSCALE
+    lda #$71 ; all layers on, VGA out, try not to break BASIC... for now
+    sta VERA_DC_VIDEO
+.endmacro
+
+.macro vera_sprite_select num
+    stz VERA_CTRL ; set ADDRSEL 0
+    lda #VERA_SPRITE_MEMH|VERA_AUTOINCREMENT_1
+    sta VERA_ADDRH
+    lda #(num * VERA_SPRITE_SIZE + VERA_SPRITE_MEM) & $FF00 >> 8
+    sta VERA_ADDRM
+    lda #(num * VERA_SPRITE_SIZE + VERA_SPRITE_MEM) & $FF
+    sta VERA_ADDRL
+.endmacro
+
+.macro vera_sprite_select_pos num
+    stz VERA_CTRL ; set ADDRSEL 0
+    lda #VERA_SPRITE_MEMH|VERA_AUTOINCREMENT_1
+    sta VERA_ADDRH
+    lda #(num * VERA_SPRITE_SIZE + VERA_SPRITE_MEM + 2) & $FF00 >> 8
+    sta VERA_ADDRM
+    lda #(num * VERA_SPRITE_SIZE + VERA_SPRITE_MEM + 2) & $FF
+    sta VERA_ADDRL
+.endmacro
+
 .macro screen_mode mode
     lda #mode
     clc
@@ -36,6 +93,16 @@ CARRIAGE_RETURN = $0D
     jsr $FFD2
 .endmacro
 
+.macro get_key
+    lda ROM_BANK
+    sta scratch
+    stz ROM_BANK ; set bank to 0
+    jsr $CE29 ; undocumented, key code goes in A and sets flags
+    ldx scratch ; restore bank, don't touch A
+    stx ROM_BANK
+    and #$FF ; set flags again
+.endmacro
+
 .macro wait_line
 loop:
     jsr $FFCF
@@ -54,6 +121,11 @@ loop:
     jsr print_string_p
 .endmacro
 
+.ZEROPAGE
+
+scratch:
+    .res $5D
+
 .segment "LOAD_ADDR"
 
 .word *
@@ -69,7 +141,74 @@ start:
     set_iso_mode
 
     print_string hello2
-    wait_line
+
+    vera_setup_video
+    vera_sprite_select 0
+    lda #$80 ; point to charset data
+    sta VERA_DATA0
+    lda #$0F ; 4bpp mode, upper pointer bits
+    sta VERA_DATA0
+    lda pos_x
+    sta VERA_DATA0
+    stz VERA_DATA0
+    lda pos_y
+    sta VERA_DATA0
+    stz VERA_DATA0
+    lda #$0C ; frontmost priority, no other attributes
+    sta VERA_DATA0
+    lda #$F0 ; make it big and obvious, use the base palette
+    sta VERA_DATA0
+
+loop:
+    get_key
+    beq loop ; no key sets Z
+    
+    tax
+
+    cmp #'w'
+    bne :+
+    lda pos_y
+    dec
+    sta pos_y
+    jmp done
+:   txa
+
+    cmp #'s'
+    bne :+
+    lda pos_y
+    inc
+    sta pos_y
+    jmp done
+:   txa
+
+    cmp #'a'
+    bne :+
+    lda pos_x
+    dec
+    sta pos_x
+    jmp done
+:   txa
+
+    cmp #'d'
+    bne :+
+    lda pos_x
+    inc
+    sta pos_x
+    jmp done
+:   txa
+
+done:
+    vera_sprite_select_pos 0
+    lda pos_x
+    sta VERA_DATA0
+    stz VERA_DATA0
+    lda pos_y
+    sta VERA_DATA0
+    stz VERA_DATA0
+
+    txa
+    cmp #'q'
+    bne loop
 
     reset_screen
     enter_basic
@@ -87,6 +226,13 @@ loop:
 done:
     rts
 .endproc
+
+.DATA
+
+pos_x:
+    .byte 10
+pos_y:
+    .byte 10
 
 .RODATA
 
