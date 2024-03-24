@@ -103,6 +103,11 @@ VERA_AUTOINCREMENT_1 = $10
     and #$FF ; set flags again
 .endmacro
 
+.macro get_buttons num
+    lda #num
+    jsr $FF56
+.endmacro
+
 .macro wait_line
 loop:
     jsr $FFCF
@@ -160,42 +165,28 @@ start:
     sta VERA_DATA0
 
 loop:
-    get_key
-    beq loop ; no key sets Z
-    
-    tax
+    get_buttons 0
 
-    cmp #'w'
+    bit #08
     bne :+
-    lda pos_y
-    dec
-    sta pos_y
+    dec pos_y
     jmp done
-:   txa
-
-    cmp #'s'
+:
+    bit #04
     bne :+
-    lda pos_y
-    inc
-    sta pos_y
+    inc pos_y
     jmp done
-:   txa
-
-    cmp #'a'
+:
+    bit #02
     bne :+
-    lda pos_x
-    dec
-    sta pos_x
+    dec pos_x
     jmp done
-:   txa
-
-    cmp #'d'
+:
+    bit #01
     bne :+
-    lda pos_x
-    inc
-    sta pos_x
+    inc pos_x
     jmp done
-:   txa
+:
 
 done:
     vera_sprite_select_pos 0
@@ -206,9 +197,11 @@ done:
     sta VERA_DATA0
     stz VERA_DATA0
 
-    txa
+    get_key
     cmp #'q'
-    bne loop
+    beq noloop
+    jmp loop
+noloop:
 
     reset_screen
     enter_basic
