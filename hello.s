@@ -10,12 +10,14 @@ CARRIAGE_RETURN = $0D
 RAM_BANK = $0000
 ROM_BANK = $0001
 
-VERA_CTRL = $9F25
 VERA_ADDRL = $9F20
 VERA_ADDRM = $9F21
 VERA_ADDRH = $9F22
 VERA_DATA0 = $9F23
 VERA_DATA1 = $9F24
+VERA_CTRL = $9F25
+VERA_IEN = $9F26
+VERA_ISR = $9F27
 ;DCSEL = 0
 VERA_DC_VIDEO = $9F29
 VERA_DC_HSCALE = $9F2A
@@ -34,6 +36,36 @@ VERA_SPRITE_MEMM = $FC
 VERA_SPRITE_MEMH = $01
 
 VERA_AUTOINCREMENT_1 = $10
+
+.macro backup_isr
+    lda $0314
+    sta orig_isr
+    lda $0315
+    sta orig_isr+1
+.endmacro
+
+.macro restore_isr
+    lda orig_isr
+    sta $0314
+    lda orig_isr+1
+    sta $0315
+.endmacro
+
+.macro set_isr ptr
+    lda #<ptr
+    sta $0314
+    lda #>ptr
+    sta $0315
+.endmacro
+
+.macro debug_to_screen
+    ldx #$01
+    stx VERA_ADDRH
+    ldx #$B0
+    stx VERA_ADDRM
+    stz VERA_ADDRL
+    sta VERA_DATA0
+.endmacro
 
 .macro vera_setup_video
     stz VERA_CTRL ; set DCSEL 0
@@ -94,7 +126,8 @@ VERA_AUTOINCREMENT_1 = $10
 .endmacro
 
 .macro get_key
-    lda ROM_BANK
+    jsr $FF9F ; scan keys
+    lda ROM_BANK ; backup bank
     sta scratch
     stz ROM_BANK ; set bank to 0
     jsr $CE29 ; undocumented, key code goes in A and sets flags
@@ -104,8 +137,9 @@ VERA_AUTOINCREMENT_1 = $10
 .endmacro
 
 .macro get_buttons num
+    jsr $FF53 ; scan buttons
     lda #num
-    jsr $FF56
+    jsr $FF56 ; get button from controller num (0 = keyboard, 1-4 controllers)
 .endmacro
 
 .macro wait_line
@@ -139,6 +173,7 @@ scratch:
 
 start:
 
+    sei
 ;    screen_mode 0
 ;    console_init
     select_input #KEYBOARD_DEV
@@ -148,61 +183,35 @@ start:
     print_string hello2
 
     vera_setup_video
+
+    ; setup sprite
     vera_sprite_select 0
     lda #$80 ; point to charset data
     sta VERA_DATA0
     lda #$0F ; 4bpp mode, upper pointer bits
     sta VERA_DATA0
-    lda pos_x
-    sta VERA_DATA0
     stz VERA_DATA0
-    lda pos_y
-    sta VERA_DATA0
+    stz VERA_DATA0
+    stz VERA_DATA0
     stz VERA_DATA0
     lda #$0C ; frontmost priority, no other attributes
     sta VERA_DATA0
     lda #$F0 ; make it big and obvious, use the base palette
     sta VERA_DATA0
 
-loop:
-    get_buttons 0
+    backup_isr
+    set_isr isr ; set interrupt handler
 
-    bit #08
-    bne :+
-    dec pos_y
-    jmp done
-:
-    bit #04
-    bne :+
-    inc pos_y
-    jmp done
-:
-    bit #02
-    bne :+
-    dec pos_x
-    jmp done
-:
-    bit #01
-    bne :+
-    inc pos_x
-    jmp done
-:
+    lda #$01 ; VERA IRQ on VSYNC
+    sta VERA_IEN
 
-done:
-    vera_sprite_select_pos 0
-    lda pos_x
-    sta VERA_DATA0
-    stz VERA_DATA0
-    lda pos_y
-    sta VERA_DATA0
-    stz VERA_DATA0
+    cli ; enable interrupts and wait
+:
+    .byte $CB ; wait
+    lda quit ; check quit flag and branch back to wait if still 0
+    beq :-
 
-    get_key
-    cmp #'q'
-    beq noloop
-    jmp loop
-noloop:
-
+    restore_isr
     reset_screen
     enter_basic
 
@@ -220,8 +229,58 @@ done:
     rts
 .endproc
 
+.proc isr
+    pha
+    phx
+    ; assume this is the vblank from the VERA
+    ; potentially add checks for others later
+    lda #$01 ; clear VSYNC interrupt status
+    sta VERA_ISR
+
+    get_buttons 0
+
+    bit #08
+    bne :+
+    dec pos_y
+:
+    bit #04
+    bne :+
+    inc pos_y
+:
+    bit #02
+    bne :+
+    dec pos_x
+:
+    bit #01
+    bne :+
+    inc pos_x
+:
+
+    vera_sprite_select_pos 0
+    lda pos_x
+    sta VERA_DATA0
+    stz VERA_DATA0
+    lda pos_y
+    sta VERA_DATA0
+    stz VERA_DATA0
+
+    get_key
+    cmp #'q'
+    bne noquit
+    inc quit
+noquit:
+
+    plx
+    pla
+    jmp (orig_isr)
+.endproc
+
 .DATA
 
+orig_isr:
+    .word 0
+quit:
+    .byte 0
 pos_x:
     .byte 10
 pos_y:
