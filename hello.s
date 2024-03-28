@@ -160,6 +160,17 @@ loop:
     jsr print_string_p
 .endmacro
 
+.macro find_bytes ptr1, ptr2, len
+    lda #<ptr1
+    pha
+    lda #>ptr2
+    pha
+    ldx #<ptr1
+    ldy #>ptr2
+    lda #len
+    jsr find_bytes_p
+.endmacro
+
 .ZEROPAGE
 
 scratch:
@@ -272,7 +283,48 @@ noquit:
 
     plx
     pla
-    jmp (orig_isr)
+
+    ply ; this is how the firmware normally returns after it's all done
+    plx
+    pla
+    rti
+.endproc
+
+.proc find_bytes_p
+    ; needle in x, y, haystack on stack, len in a
+    ; result in x, 255 means not found
+    ; clobbers a, x, y, scratch 0
+    sta scratch
+    stx loop+4
+    sty loop+5
+    tsx ; get the arguments off the stack
+    lda $104,x
+    ldy $103,x
+    tax
+    stx loop+1
+    sty loop+2
+    ldx #0
+    ldy #0
+loop:
+    lda $FFFF,x
+    cmp $FFFF,y
+    bne nomatch
+    iny
+    tya
+    cmp scratch
+    beq done
+    bra next
+nomatch:
+    ldy #0
+next:
+    inx
+    beq err ; overflowed back to 0, and didn't find it.
+    bra loop
+done:
+    rts
+err:
+    ldx #255
+    rts
 .endproc
 
 .DATA
