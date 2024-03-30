@@ -327,7 +327,7 @@ start:
     vera_sprite_select 0
     lda #$80 ; point to charset data
     sta VERA_DATA0
-    lda #($0F | VERA_SPRITE_ADDRH_4BPP)
+    lda #($8 | VERA_SPRITE_ADDRH_4BPP)
     sta VERA_DATA0
     stz VERA_DATA0
     stz VERA_DATA0
@@ -335,7 +335,7 @@ start:
     stz VERA_DATA0
     lda #VERA_SPRITE_ATTRIB_ABOVE_L1
     sta VERA_DATA0
-    lda #(VERA_SPRITE_PALETTE_WIDTH_64 | VERA_SPRITE_PALETTE_HEIGHT_64)
+    lda #(VERA_SPRITE_PALETTE_WIDTH_8 | VERA_SPRITE_PALETTE_HEIGHT_16)
     sta VERA_DATA0
 
     stz VERA_CTRL ; set ADDRSEL 0
